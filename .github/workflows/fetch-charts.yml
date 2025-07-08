@@ -15,34 +15,35 @@ jobs:
       - name: Cloner le dépôt
         uses: actions/checkout@v3
 
-      - name: Récupérer les cartes ChartFox
+      - name: Récupérer les cartes ChartFox (mode debug)
         env:
           CHARTFOX_TOKEN: ${{ secrets.CHARTFOX_TOKEN }}
         run: |
           ICAO="${{ github.event.inputs.icao }}"
-          echo "Téléchargement des cartes pour $ICAO..."
+          echo "🔍 Téléchargement des cartes pour $ICAO..."
 
           RESPONSE=$(curl -L -s \
             -H "Authorization: Bearer $CHARTFOX_TOKEN" \
             -H "Accept: application/json" \
             "https://chartfox.org/api/airport/$ICAO")
 
-          # Vérifier si le contenu est bien du JSON (et pas une redirection HTML)
+          echo "📦 Contenu brut reçu :"
+          echo "$RESPONSE"
+
           if echo "$RESPONSE" | grep -iq "<html>"; then
-            echo "⛔ Erreur : la réponse reçue est du HTML (probablement une redirection ou une erreur 403/301)."
+            echo "⛔ Erreur : HTML détecté (probable redirection, erreur d'authentification ou API inaccessible)"
             exit 1
           fi
 
-          # Vérifier que le JSON est valide
           echo "$RESPONSE" | jq . > /dev/null
           if [ $? -ne 0 ]; then
-            echo "⛔ Erreur : la réponse n’est pas un JSON valide."
-            exit 1
+            echo "⛔ Erreur : Ce n’est pas du JSON valide (échec jq)"
+            exit 5
           fi
 
           mkdir -p data
           echo "$RESPONSE" > data/charts-$ICAO.json
-          echo "✅ Fichier JSON sauvegardé dans data/charts-$ICAO.json"
+          echo "✅ JSON sauvegardé dans data/charts-$ICAO.json"
 
       - name: Commit et push des cartes
         env:
