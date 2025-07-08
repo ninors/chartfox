@@ -1,7 +1,40 @@
-      - name: Commit and push charts JSON
+name: Fetch ChartFox Charts
+
+on:
+  workflow_dispatch:
+    inputs:
+      icao:
+        description: 'Code OACI de l’aéroport (ex: LFPG)'
+        required: true
+
+jobs:
+  fetch_charts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Cloner le dépôt
+        uses: actions/checkout@v3
+
+      - name: Récupérer les cartes ChartFox
+        env:
+          CHARTFOX_TOKEN: ${{ secrets.CHARTFOX_TOKEN }}
+        run: |
+          ICAO=${{ github.event.inputs.icao }}
+          echo "Téléchargement des cartes pour $ICAO..."
+
+          RESPONSE=$(curl -L -s \
+            -H "Authorization: Bearer $CHARTFOX_TOKEN" \
+            -H "Accept: application/json" \
+            "https://chartfox.org/api/airport/$ICAO")
+
+          mkdir -p data
+          echo "$RESPONSE" > data/charts-$ICAO.json
+          echo "Fichier sauvegardé dans data/charts-$ICAO.json"
+
+      - name: Commit et push des cartes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/charts-*.json
-          git commit -m "Add charts data for ${{ github.event.inputs.icao }}" || echo "No changes to commit"
+          git commit -m "Ajout des cartes ChartFox pour ${{ github.event.inputs.icao }}" || echo "Aucun changement à committer"
           git push
