@@ -2,57 +2,102 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Cartes ChartFox via GitHub</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cartes ChartFox par OACI</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 600px; margin: 1rem auto; }
-    input { width: 100%; padding: 0.5rem; font-size: 1rem; }
-    a { display: block; margin: 0.3rem 0; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #f9f9f9;
+      margin: 2rem;
+      color: #333;
+    }
+    h1 { font-size: 1.8rem; }
+    input {
+      padding: 8px;
+      font-size: 1rem;
+      width: 200px;
+    }
+    button {
+      padding: 8px 12px;
+      font-size: 1rem;
+      margin-left: 10px;
+      cursor: pointer;
+    }
+    .category {
+      margin-top: 2rem;
+    }
+    .category h2 {
+      border-bottom: 2px solid #ccc;
+      padding-bottom: 4px;
+    }
+    ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    li {
+      margin: 4px 0;
+    }
+    a {
+      text-decoration: none;
+      color: #0066cc;
+    }
   </style>
 </head>
 <body>
-  <h1>Recherche de cartes ChartFox</h1>
-  <input id="icao" maxlength="4" placeholder="Entrez code OACI (ex: LFPG)" />
-  <div id="results"></div>
+  <h1>Visualiseur de Cartes ChartFox</h1>
+  <label for="icao">Code OACI :</label>
+  <input type="text" id="icao" placeholder="ex: LFPG" maxlength="4" />
+  <button onclick="loadCharts()">Charger</button>
+
+  <div id="output"></div>
 
   <script>
-    const resultsDiv = document.getElementById('results');
-    const input = document.getElementById('icao');
+    async function loadCharts() {
+      const icao = document.getElementById("icao").value.trim().toUpperCase();
+      const output = document.getElementById("output");
+      output.innerHTML = "";
 
-    input.addEventListener('change', async () => {
-      const icao = input.value.toUpperCase().trim();
-      if (!/^[A-Z]{4}$/.test(icao)) {
-        resultsDiv.innerHTML = 'Code OACI invalide';
+      if (!icao.match(/^[A-Z]{4}$/)) {
+        output.innerHTML = "<p>❌ Code OACI invalide (4 lettres majuscules requises)</p>";
         return;
       }
-      resultsDiv.innerHTML = 'Chargement des cartes...';
 
+      const url = `https://raw.githubusercontent.com/ninors/chartfox/main/data/charts-${icao}.json`;
       try {
-        const res = await fetch(`./data/charts-${icao}.json`);
-        if (!res.ok) throw new Error('Pas de données pour ce code');
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Fichier introuvable");
         const data = await res.json();
-        const charts = data.charts || [];
 
-        const grouped = { SID: [], STAR: [], Approach: [], Other: [] };
-        charts.forEach(c => {
-          if (c.category.includes("SID")) grouped.SID.push(c);
-          else if (c.category.includes("STAR")) grouped.STAR.push(c);
-          else if (c.category.includes("Approach")) grouped.Approach.push(c);
-          else grouped.Other.push(c);
-        });
-
-        resultsDiv.innerHTML = '';
-        for (const group in grouped) {
-          if (grouped[group].length > 0) {
-            resultsDiv.innerHTML += `<h3>${group}</h3>`;
-            grouped[group].forEach(c => {
-              resultsDiv.innerHTML += `<a href="${c.url}" target="_blank">${c.name}</a>`;
-            });
-          }
+        const byCategory = {};
+        for (const chart of data.charts) {
+          if (!byCategory[chart.category]) byCategory[chart.category] = [];
+          byCategory[chart.category].push(chart);
         }
-      } catch {
-        resultsDiv.innerHTML = 'Pas de données pour ce code OACI. Lance le workflow GitHub Actions pour générer le fichier.';
+
+        for (const category of Object.keys(byCategory).sort()) {
+          const section = document.createElement("div");
+          section.className = "category";
+          section.innerHTML = `<h2>${category}</h2>`;
+          const ul = document.createElement("ul");
+
+          for (const chart of byCategory[category]) {
+            const li = document.createElement("li");
+            li.innerHTML = `<a href="${chart.url}" target="_blank">${chart.name}</a>`;
+            ul.appendChild(li);
+          }
+
+          section.appendChild(ul);
+          output.appendChild(section);
+        }
+
+        if (!Object.keys(byCategory).length) {
+          output.innerHTML = "<p>Aucune carte disponible pour cet aéroport.</p>";
+        }
+
+      } catch (err) {
+        output.innerHTML = `<p>⚠️ Erreur : ${err.message}</p>`;
       }
-    });
+    }
   </script>
 </body>
 </html>
