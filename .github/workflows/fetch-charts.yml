@@ -19,7 +19,7 @@ jobs:
         env:
           CHARTFOX_TOKEN: ${{ secrets.CHARTFOX_TOKEN }}
         run: |
-          ICAO=${{ github.event.inputs.icao }}
+          ICAO="${{ github.event.inputs.icao }}"
           echo "Téléchargement des cartes pour $ICAO..."
 
           RESPONSE=$(curl -L -s \
@@ -27,14 +27,29 @@ jobs:
             -H "Accept: application/json" \
             "https://chartfox.org/api/airport/$ICAO")
 
+          # Vérifier si le contenu est bien du JSON (et pas une redirection HTML)
+          if echo "$RESPONSE" | grep -iq "<html>"; then
+            echo "⛔ Erreur : la réponse reçue est du HTML (probablement une redirection ou une erreur 403/301)."
+            exit 1
+          fi
+
+          # Vérifier que le JSON est valide
+          echo "$RESPONSE" | jq . > /dev/null
+          if [ $? -ne 0 ]; then
+            echo "⛔ Erreur : la réponse n’est pas un JSON valide."
+            exit 1
+          fi
+
           mkdir -p data
           echo "$RESPONSE" > data/charts-$ICAO.json
-          echo "Fichier sauvegardé dans data/charts-$ICAO.json"
+          echo "✅ Fichier JSON sauvegardé dans data/charts-$ICAO.json"
 
       - name: Commit et push des cartes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/charts-*.json
           git commit -m "Ajout des cartes ChartFox pour ${{ github.event.inputs.icao }}" || echo "Aucun changement à committer"
-          git push
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} HEAD:main
