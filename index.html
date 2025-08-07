@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Viewer ChartFox</title>
+</head>
+<body>
+  <h1>Connexion ChartFox + Recherche ICAO</h1>
+  <button id="login">Se connecter à ChartFox</button>
+
+  <div id="form" style="display:none;">
+    <input id="icao" placeholder="Code OACI (ex: LFPG)">
+    <button id="search">Rechercher</button>
+    <div id="result"></div>
+  </div>
+
+  <script>
+    const client_id = "9f946a22-0dc6-4027-a66e-9678e653c478";
+    const redirect_uri = "http://pilotefhf.free.fr/charts/";
+    const scope = "charts:view charts:index charts:files";
+
+    // PKCE: Génération aléatoire du code_verifier
+    function generateCodeVerifier() {
+      const array = new Uint32Array(56);
+      window.crypto.getRandomValues(array);
+      return Array.from(array, dec => ('0' + dec.toString(16)).slice(-2)).join('');
+    }
+
+    // Hash en SHA-256 puis encodage Base64 URL
+    async function generateCodeChallenge(codeVerifier) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(codeVerifier);
+      const digest = await window.crypto.subtle.digest('SHA-256', data);
+      return btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    // Récupère paramètre URL
+    function getURLParam(name) {
+      return new URLSearchParams(window.location.search).get(name);
+    }
+
+    // Lance la connexion OAuth
+    document.getElementById('login').onclick = async () => {
+      const codeVerifier = generateCodeVerifier();
+      const codeChallenge = await generateCodeChallenge(codeVerifier);
+      localStorage.setItem('code_verifier', codeVerifier);
+
+      const authUrl = `https://api.chartfox.org/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=${encodeURIComponent(scope)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+      window.location = authUrl;
+    };
+
+    // Si redirigé avec ?code=xxxx, on échange le code contre le token
+    async function handleOAuthRedirect() {
+      const code = getURLParam('code');
+      if (!code) return;
+
+      const codeVerifier = localStorage.getItem('code_verifier');
+
+      const response = await fetch('https://api.chartfox.org/oauth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri,
+          client_id,
+          code_verifier: codeVerifier
+        })
+      });
+
+      const data = await response.json();
+      if (data.access_token) {
+        localStorage.setItem('access_token', data.access_token);
+        history.replaceState({}, null, redirect_uri); // Nettoie l’URL
+        document.getElementById("form").style.display = "block";
+      } else {
+        alert("Échec OAuth");
+      }
+    }
+
+    // Recherche des cartes
+    document.getElementById("search").onclick = () => {
+      const icao = document.getElementById("icao").value.toUpperCase();
+      const token = localStorage.getItem("access_token");
+
+      fetch(`https://api.chartfox.org/v2/airports/${icao}/charts/grouped`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }).then(r => r.json()).then(data => {
+        const out = document.getElementById("result");
+        out.innerHTML = '';
+
+        if (!data.groups) {
+          out.innerHTML = '<p>Aucune carte trouvée.</p>';
+          return;
+        }
+
+        Object.entries(data.groups).forEach(([type, charts]) => {
+          const section = document.createElement("div");
+          section.innerHTML = `<h2>${type}</h2><ul>` +
+            charts.map(c => `<li><a href="${c.url}" target="_blank">${c.name}</a></li>`).join('') +
+            `</ul>`;
+          out.appendChild(section);
+        });
+      });
+    };
+
+    // Gère le retour OAuth s’il existe
+    handleOAuthRedirect();
+  </script>
+</body>
+</html>
