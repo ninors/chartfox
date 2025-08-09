@@ -19,14 +19,13 @@
     const redirect_uri = "https://ninors.github.io/chartfox/";
     const scope = "charts:view charts:index charts:files";
 
-    // PKCE: Génération aléatoire du code_verifier
     function generateCodeVerifier() {
-      const array = new Uint32Array(56);
+      const array = new Uint8Array(64);
       window.crypto.getRandomValues(array);
-      return Array.from(array, dec => ('0' + dec.toString(16)).slice(-2)).join('');
+      return btoa(String.fromCharCode(...array))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
-    // Hash en SHA-256 puis encodage Base64 URL
     async function generateCodeChallenge(codeVerifier) {
       const encoder = new TextEncoder();
       const data = encoder.encode(codeVerifier);
@@ -35,23 +34,19 @@
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
-    // Récupère paramètre URL
     function getURLParam(name) {
       return new URLSearchParams(window.location.search).get(name);
     }
 
-    // Lance la connexion OAuth
     document.getElementById('login').onclick = async () => {
       const codeVerifier = generateCodeVerifier();
       const codeChallenge = await generateCodeChallenge(codeVerifier);
       localStorage.setItem('code_verifier', codeVerifier);
 
       const authUrl = `https://api.chartfox.org/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=${encodeURIComponent(scope)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-
       window.location = authUrl;
     };
 
-    // Si redirigé avec ?code=xxxx, on échange le code contre le token
     async function handleOAuthRedirect() {
       const code = getURLParam('code');
       if (!code) return;
@@ -73,42 +68,42 @@
       const data = await response.json();
       if (data.access_token) {
         localStorage.setItem('access_token', data.access_token);
-        history.replaceState({}, null, redirect_uri); // Nettoie l’URL
+        history.replaceState({}, null, redirect_uri);
         document.getElementById("form").style.display = "block";
       } else {
         alert("Échec OAuth");
       }
     }
 
-    // Recherche des cartes
     document.getElementById("search").onclick = () => {
       const icao = document.getElementById("icao").value.toUpperCase();
       const token = localStorage.getItem("access_token");
 
       fetch(`https://api.chartfox.org/v2/airports/${icao}/charts/grouped`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }).then(r => r.json()).then(data => {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(r => r.json())
+      .then(data => {
         const out = document.getElementById("result");
         out.innerHTML = '';
 
-        if (!data.groups) {
+        if (!data.data || Object.keys(data.data).length === 0) {
           out.innerHTML = '<p>Aucune carte trouvée.</p>';
           return;
         }
 
-        Object.entries(data.groups).forEach(([type, charts]) => {
-          const section = document.createElement("div");
-          section.innerHTML = `<h2>${type}</h2><ul>` +
-            charts.map(c => `<li><a href="${c.url}" target="_blank">${c.name}</a></li>`).join('') +
-            `</ul>`;
-          out.appendChild(section);
+        Object.entries(data.data).forEach(([typeId, charts]) => {
+          if (charts.length > 0) {
+            const section = document.createElement("div");
+            section.innerHTML = `<h2>${charts[0].type_key}</h2><ul>` +
+              charts.map(c => `<li><a href="https://api.chartfox.org/v2/charts/${c.id}/file" target="_blank">${c.name}</a></li>`).join('') +
+              `</ul>`;
+            out.appendChild(section);
+          }
         });
       });
     };
 
-    // Gère le retour OAuth s’il existe
     handleOAuthRedirect();
   </script>
 </body>
