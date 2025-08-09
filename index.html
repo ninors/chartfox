@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Viewer ChartFox</title>
 </head>
 <body>
@@ -9,7 +9,7 @@
   <button id="login">Se connecter à ChartFox</button>
 
   <div id="form" style="display:none;">
-    <input id="icao" placeholder="Code OACI (ex: LFPG)">
+    <input id="icao" placeholder="Code OACI (ex: LFPG)" />
     <button id="search">Rechercher</button>
     <div id="result"></div>
   </div>
@@ -75,25 +75,10 @@
       }
     }
 
-    // Ouvre une carte via API et token OAuth
+    // Ouvre la page ChartFox de la carte (évite le fetch / file)
     function openChart(chartId) {
-      const token = localStorage.getItem("access_token");
-      fetch(`https://api.chartfox.org/v2/charts/${chartId}/file`, {
-        headers: { Authorization: `Bearer ${token}` },
-        redirect: "manual"
-      })
-      .then(resp => {
-        const realUrl = resp.headers.get("Location");
-        if (realUrl) {
-          window.open(realUrl, "_blank");
-        } else {
-          alert("Impossible de récupérer le lien de la carte.");
-        }
-      })
-      .catch(err => {
-        console.error(err);
-        alert("Erreur lors de l'ouverture de la carte.");
-      });
+      const url = `https://chartfox.org/charts/${chartId}`;
+      window.open(url, "_blank");
     }
 
     document.getElementById("search").onclick = () => {
@@ -122,6 +107,9 @@
             out.appendChild(section);
           }
         });
+      })
+      .catch(() => {
+        document.getElementById("result").innerHTML = "Erreur lors de la récupération des cartes.";
       });
     };
 
