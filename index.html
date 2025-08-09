@@ -75,6 +75,27 @@
       }
     }
 
+    // Ouvre une carte via API et token OAuth
+    function openChart(chartId) {
+      const token = localStorage.getItem("access_token");
+      fetch(`https://api.chartfox.org/v2/charts/${chartId}/file`, {
+        headers: { Authorization: `Bearer ${token}` },
+        redirect: "manual"
+      })
+      .then(resp => {
+        const realUrl = resp.headers.get("Location");
+        if (realUrl) {
+          window.open(realUrl, "_blank");
+        } else {
+          alert("Impossible de récupérer le lien de la carte.");
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        alert("Erreur lors de l'ouverture de la carte.");
+      });
+    }
+
     document.getElementById("search").onclick = () => {
       const icao = document.getElementById("icao").value.toUpperCase();
       const token = localStorage.getItem("access_token");
@@ -96,7 +117,7 @@
           if (charts.length > 0) {
             const section = document.createElement("div");
             section.innerHTML = `<h2>${charts[0].type_key}</h2><ul>` +
-              charts.map(c => `<li><a href="https://api.chartfox.org/v2/charts/${c.id}/file" target="_blank">${c.name}</a></li>`).join('') +
+              charts.map(c => `<li><a href="#" onclick="openChart('${c.id}'); return false;">${c.name}</a></li>`).join('') +
               `</ul>`;
             out.appendChild(section);
           }
