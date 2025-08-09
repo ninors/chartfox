@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>ChartFox Viewer intégré</title>
+  <title>ChartFox Viewer intégré (Airport Interface)</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -10,11 +10,12 @@
       display: flex; height: 100vh; overflow: hidden;
     }
     #left-panel {
-      width: 40%;
+      width: 30%;
       padding: 10px;
       box-sizing: border-box;
       overflow-y: auto;
       border-right: 1px solid #ccc;
+      background: #f9f9f9;
     }
     #right-panel {
       flex-grow: 1;
@@ -26,60 +27,30 @@
     }
     input, button {
       font-size: 1rem;
-      padding: 5px;
+      padding: 8px;
       margin-bottom: 10px;
       width: 100%;
       box-sizing: border-box;
     }
-    .tabs {
-      display: flex;
-      border-bottom: 1px solid #ccc;
-      margin-bottom: 10px;
-    }
-    .tab {
-      padding: 5px 10px;
-      cursor: pointer;
-      border: 1px solid #ccc;
-      border-bottom: none;
-      background: #eee;
-      margin-right: 5px;
-      user-select: none;
-    }
-    .tab.active {
-      background: white;
-      font-weight: bold;
-    }
-    .charts-list {
-      max-height: 70vh;
-      overflow-y: auto;
-    }
-    .charts-list ul {
-      list-style: none;
-      padding-left: 0;
-    }
-    .charts-list li {
-      margin: 3px 0;
-    }
-    .charts-list a {
-      text-decoration: none;
-      color: #007bff;
-      cursor: pointer;
-    }
-    .charts-list a:hover {
-      text-decoration: underline;
+    #status {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      color: #555;
+      min-height: 1.2em;
     }
   </style>
 </head>
 <body>
-  <div id="left-panel">
-    <input id="icao" placeholder="Code OACI (ex: LFPG)" />
-    <button id="search">Rechercher</button>
 
-    <div id="tabs" class="tabs"></div>
-    <div id="charts-container" class="charts-list"></div>
+  <div id="left-panel">
+    <h2>ChartFox Viewer</h2>
+    <input id="icao" placeholder="Code OACI (ex: LFPG)" />
+    <button id="search">Afficher les cartes</button>
+    <div id="status"></div>
   </div>
+
   <div id="right-panel">
-    <iframe id="chart-frame" src=""></iframe>
+    <iframe id="chart-frame" src="" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
   </div>
 
 <script>
@@ -87,7 +58,7 @@
   const redirect_uri = "https://ninors.github.io/chartfox/"; // adapte à ton hébergement
   const scope = "charts:view charts:index charts:files";
 
-  // --- OAuth Gestion simplifiée ---
+  // Utilitaires OAuth PKCE
   async function generateCodeVerifier() {
     const array = new Uint8Array(64);
     window.crypto.getRandomValues(array);
@@ -105,6 +76,7 @@
     return new URLSearchParams(window.location.search).get(name);
   }
 
+  // Lancer le flux OAuth
   async function login() {
     const codeVerifier = await generateCodeVerifier();
     const codeChallenge = await generateCodeChallenge(codeVerifier);
@@ -113,6 +85,7 @@
     window.location = authUrl;
   }
 
+  // Gérer le retour OAuth avec code pour récupérer le token
   async function handleOAuthRedirect() {
     const code = getURLParam('code');
     if (!code) return false;
@@ -134,7 +107,7 @@
     const data = await resp.json();
     if (data.access_token) {
       localStorage.setItem('access_token', data.access_token);
-      history.replaceState({}, null, redirect_uri);
+      history.replaceState({}, null, redirect_uri); // Nettoyer URL (supprimer ?code=)
       return true;
     } else {
       alert("Échec de connexion OAuth");
@@ -142,114 +115,66 @@
     }
   }
 
-  async function getChartsGroupedByType(icao) {
+  // Appeler l'interface airport intégrée, qui fournit une URL iframe valide
+  async function getAirportInterfaceURL(icao) {
     const token = localStorage.getItem('access_token');
-    if (!token) return null;
-    const resp = await fetch(`https://api.chartfox.org/v2/airports/${icao}/charts/grouped`, {
+    if (!token) throw new Error("Token manquant, veuillez vous reconnecter.");
+
+    const resp = await fetch(`https://api.chartfox.org/v2/interfaces/airport/${icao}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
-    if (!resp.ok) throw new Error(`Erreur API: ${resp.status}`);
-    const data = await resp.json();
-    return data.data || {};
-  }
-
-  async function getChartDetails(chartId) {
-    const token = localStorage.getItem('access_token');
-    if (!token) throw new Error("Token manquant");
-    const resp = await fetch(`https://api.chartfox.org/v2/charts/${chartId}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (!resp.ok) throw new Error(`Erreur API Chart Details: ${resp.status}`);
-    return await resp.json();
-  }
-
-  // Gestion onglets
-  let currentTab = null;
-  function createTabs(types) {
-    const tabs = document.getElementById('tabs');
-    tabs.innerHTML = '';
-    Object.entries(types).forEach(([typeKey, charts]) => {
-      const tab = document.createElement('div');
-      tab.className = 'tab';
-      tab.textContent = charts[0].type_key || typeKey;
-      tab.dataset.typeKey = typeKey;
-      tab.onclick = () => {
-        setActiveTab(typeKey);
-      };
-      tabs.appendChild(tab);
-    });
-  }
-
-  function setActiveTab(typeKey) {
-    if (currentTab === typeKey) return;
-    currentTab = typeKey;
-
-    // Set active class
-    const tabs = document.querySelectorAll('.tab');
-    tabs.forEach(t => t.classList.toggle('active', t.dataset.typeKey === typeKey));
-
-    // Afficher les charts correspondants
-    const chartsContainer = document.getElementById('charts-container');
-    chartsContainer.innerHTML = '';
-    const charts = window.allCharts[typeKey] || [];
-    if (charts.length === 0) {
-      chartsContainer.textContent = 'Aucune carte pour cet onglet.';
-      return;
+    if (!resp.ok) {
+      if (resp.status === 401) {
+        // Token expiré ou invalide, forcer nouvelle connexion
+        localStorage.removeItem('access_token');
+        login();
+        throw new Error("Token expiré, reconnexion requise.");
+      }
+      throw new Error(`Erreur API: ${resp.status}`);
     }
-    const ul = document.createElement('ul');
-    charts.forEach(chart => {
-      const li = document.createElement('li');
-      const a = document.createElement('a');
-      a.textContent = chart.name;
-      a.href = "#";
-      a.onclick = async (e) => {
-        e.preventDefault();
-        try {
-          const details = await getChartDetails(chart.id);
-          let url = details.view_url || details.url || details.source_url;
-          if (!url) {
-            alert("Pas de lien d'affichage disponible pour cette carte.");
-            return;
-          }
-          // Afficher dans iframe
-          document.getElementById('chart-frame').src = url;
-        } catch (err) {
-          alert("Erreur lors du chargement de la carte: " + err.message);
-        }
-      };
-      li.appendChild(a);
-      ul.appendChild(li);
-    });
-    chartsContainer.appendChild(ul);
+    const data = await resp.json();
+    if (!data.interface_url || !data.allowed_iframe) {
+      throw new Error("Pas d'URL iframe disponible pour cet aéroport.");
+    }
+    return data.interface_url;
   }
 
-  document.getElementById('search').onclick = async () => {
-    const icao = document.getElementById('icao').value.trim().toUpperCase();
+  // Gestion UI et iframe
+  const statusEl = document.getElementById('status');
+  const iframe = document.getElementById('chart-frame');
+  const icaoInput = document.getElementById('icao');
+  const searchBtn = document.getElementById('search');
+
+  searchBtn.onclick = async () => {
+    const icao = icaoInput.value.trim().toUpperCase();
     if (!icao) return alert("Merci de saisir un code OACI.");
+
+    statusEl.textContent = "Chargement...";
+    iframe.src = "";
+
     try {
-      const groupedCharts = await getChartsGroupedByType(icao);
-      window.allCharts = groupedCharts; // stock global
-      createTabs(groupedCharts);
-      // Activer premier onglet
-      const firstTypeKey = Object.keys(groupedCharts)[0];
-      if (firstTypeKey) setActiveTab(firstTypeKey);
-      // Clear iframe au départ
-      document.getElementById('chart-frame').src = "";
+      const url = await getAirportInterfaceURL(icao);
+      iframe.src = url;
+      statusEl.textContent = `Affichage des cartes pour ${icao}`;
     } catch (err) {
-      alert("Erreur lors de la récupération des cartes : " + err.message);
+      statusEl.textContent = "";
+      alert("Erreur : " + err.message);
     }
   };
 
-  // Au chargement, gérer OAuth redirect
+  // Au chargement, gérer OAuth et lancer login si besoin
   window.onload = async () => {
-    const token = localStorage.getItem('access_token');
+    let token = localStorage.getItem('access_token');
     if (!token) {
       const success = await handleOAuthRedirect();
       if (!success) {
         login();
       }
+    } else {
+      statusEl.textContent = "Prêt. Saisissez un code OACI.";
     }
   };
 </script>
+
 </body>
 </html>
