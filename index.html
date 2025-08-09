@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Viewer ChartFox</title>
+  <title>ChartFox Viewer</title>
 </head>
 <body>
   <h1>Connexion ChartFox + Recherche ICAO</h1>
@@ -17,8 +17,9 @@
   <script>
     const client_id = "9f946a22-0dc6-4027-a66e-9678e653c478";
     const redirect_uri = "https://ninors.github.io/chartfox/";
-    const scope = "charts:view charts:index charts:files";
+    const scope = "charts:view charts:index charts:files charts:view_source_url";
 
+    // Génère un code verifier PKCE
     function generateCodeVerifier() {
       const array = new Uint8Array(64);
       window.crypto.getRandomValues(array);
@@ -26,6 +27,7 @@
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
+    // Génère un code challenge SHA256 base64url
     async function generateCodeChallenge(codeVerifier) {
       const encoder = new TextEncoder();
       const data = encoder.encode(codeVerifier);
@@ -34,6 +36,7 @@
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
+    // Récupère param GET
     function getURLParam(name) {
       return new URLSearchParams(window.location.search).get(name);
     }
@@ -75,14 +78,54 @@
       }
     }
 
-    function openChart(chartId) {
-      const url = `https://chartfox.org/charts/${chartId}`;
-      window.open(url, "_blank");
+    // Récupérer les infos complètes d'une carte pour obtenir ses fichiers
+    async function getChartDetails(chartId) {
+      const token = localStorage.getItem("access_token");
+      if (!token) {
+        alert("Vous devez être connecté.");
+        return null;
+      }
+      try {
+        const resp = await fetch(`https://api.chartfox.org/v2/charts/${chartId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!resp.ok) throw new Error("Erreur API: " + resp.status);
+        return await resp.json();
+      } catch(e) {
+        console.error(e);
+        alert("Erreur lors de la récupération des détails de la carte.");
+        return null;
+      }
+    }
+
+    // Ouvre un lien direct vers le fichier PDF/PNG ou fallback vers view_url
+    async function openChart(chartId) {
+      const details = await getChartDetails(chartId);
+      if (!details) return;
+
+      // Priorité: fichiers internes first-party (files[].url), sinon view_url, sinon source_url
+      if (details.files && details.files.length > 0) {
+        window.open(details.files[0].url, "_blank");
+      } else if (details.view_url) {
+        window.open(details.view_url, "_blank");
+      } else if (details.source_url) {
+        window.open(details.source_url, "_blank");
+      } else {
+        alert("Aucun lien de fichier disponible pour cette carte.");
+      }
     }
 
     document.getElementById("search").onclick = () => {
-      const icao = document.getElementById("icao").value.toUpperCase();
+      const icao = document.getElementById("icao").value.trim().toUpperCase();
       const token = localStorage.getItem("access_token");
+      if (!token) {
+        alert("Vous devez être connecté.");
+        return;
+      }
+      if (!icao) {
+        alert("Veuillez saisir un code OACI valide.");
+        return;
+      }
 
       fetch(`https://api.chartfox.org/v2/airports/${icao}/charts/grouped`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -107,11 +150,13 @@
           }
         });
       })
-      .catch(() => {
+      .catch(e => {
+        console.error(e);
         document.getElementById("result").innerHTML = "Erreur lors de la récupération des cartes.";
       });
     };
 
+    // Lancer la gestion OAuth au chargement
     handleOAuthRedirect();
   </script>
 </body>
