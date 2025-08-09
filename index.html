@@ -123,6 +123,9 @@
   </div>
 
   <script>
+    // Proxy CORS simple & gratuit
+    const PROXY = "https://cors.bridged.cc/";
+
     // Configuration OAuth
     const client_id = "9f946a22-0dc6-4027-a66e-9678e653c478";
     const redirect_uri = "https://ninors.github.io/chartfox/";
@@ -159,7 +162,7 @@
       if (!codeVerifier) return false;
 
       try {
-        const response = await fetch('https://api.chartfox.org/oauth/token', {
+        const response = await fetch(PROXY + 'https://api.chartfox.org/oauth/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -199,22 +202,22 @@
       return false;
     }
 
-    // Récupère les charts groupés par type
+    // Récupère les charts groupés par type avec proxy
     async function fetchChartsGrouped(icao) {
       const token = localStorage.getItem("access_token");
       if (!token) throw new Error("Pas de token d'accès");
 
-      const resp = await fetch(`https://api.chartfox.org/v2/airports/${icao}/charts/grouped`, {
+      const resp = await fetch(PROXY + `https://api.chartfox.org/v2/airports/${icao}/charts/grouped`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!resp.ok) throw new Error(`Erreur API: ${resp.status}`);
       return await resp.json();
     }
 
-    // Détails d'une carte
+    // Détails d'une carte avec proxy
     async function getChartDetails(chartId) {
       const token = localStorage.getItem("access_token");
-      const resp = await fetch(`https://api.chartfox.org/v2/charts/${chartId}`, {
+      const resp = await fetch(PROXY + `https://api.chartfox.org/v2/charts/${chartId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!resp.ok) throw new Error(`Erreur API détails carte: ${resp.status}`);
@@ -269,76 +272,76 @@
           li.appendChild(a);
           ul.appendChild(li);
         });
-
         tabContentDiv.appendChild(ul);
       });
     }
 
-    // Affiche un tab spécifique
+    // Affiche le contenu d'un tab et active bouton
     function showTab(typeId) {
-      [...tabButtonsDiv.children].forEach(btn => {
+      Array.from(tabButtonsDiv.children).forEach(btn => {
         btn.classList.toggle("active", btn.dataset.tab === typeId);
       });
-      [...tabContentDiv.children].forEach(ul => {
+      Array.from(tabContentDiv.children).forEach(ul => {
         ul.style.display = ul.id === "tab-" + typeId ? "block" : "none";
       });
     }
 
-    // Affiche la carte dans le viewer
+    // Affiche une carte dans le viewer (iframe)
     async function showChartInViewer(chartId) {
+      viewerDiv.innerHTML = "Chargement...";
       try {
-        viewerDiv.textContent = "Chargement...";
-        const chart = await getChartDetails(chartId);
+        const chartDetails = await getChartDetails(chartId);
+        let src = chartDetails.data?.source_url || chartDetails.data?.file_url;
+        if (!src) throw new Error("Aucune URL disponible pour cette carte");
 
-        if (chart.allows_iframe && chart.view_url) {
-          viewerDiv.innerHTML = `<iframe src="${chart.view_url}" allowfullscreen></iframe>`;
-        } else if (chart.source_url) {
-          viewerDiv.innerHTML = `
-            <p>Cette carte ne peut pas être affichée directement ici.</p>
-            <p><a href="${chart.source_url}" target="_blank" rel="noopener noreferrer">Ouvrir la carte dans un nouvel onglet</a></p>
-          `;
-          window.open(chart.source_url, "_blank");
-        } else {
-          viewerDiv.textContent = "Impossible d'afficher la carte.";
+        // Remplacer si PDF Google Docs Viewer préféré :
+        if (src.endsWith(".pdf")) {
+          src = "https://docs.google.com/gview?embedded=true&url=" + encodeURIComponent(src);
         }
-      } catch (e) {
-        viewerDiv.textContent = `Erreur: ${e.message}`;
+
+        viewerDiv.innerHTML = `<iframe src="${src}" title="Carte ${chartId}"></iframe>`;
+      } catch (err) {
+        viewerDiv.textContent = "Erreur chargement carte : " + err.message;
       }
     }
 
-    // Gestion saisie OACI + recherche charts
-    icaoInput.addEventListener("keydown", async e => {
+    // Recherche & affichage cartes par ICAO
+    async function searchCharts() {
+      const icao = icaoInput.value.trim().toUpperCase();
+      if (!icao.match(/^[A-Z]{4}$/)) {
+        alert("Entrez un code OACI valide (4 lettres).");
+        return;
+      }
+      tabsDiv.style.display = "none";
+      viewerDiv.textContent = "Recherche en cours...";
+      loginMsg.style.display = "none";
+
+      try {
+        const chartsGrouped = await fetchChartsGrouped(icao);
+        createTabs(chartsGrouped);
+        tabsDiv.style.display = "flex";
+      } catch (err) {
+        if (err.message.includes("401") || err.message.includes("token")) {
+          loginMsg.style.display = "block";
+        } else {
+          viewerDiv.textContent = "Erreur lors de la recherche: " + err.message;
+        }
+      }
+    }
+
+    // Gestion entrée clavier sur input ICAO
+    icaoInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
-        const icao = e.target.value.trim().toUpperCase();
-        if (!icao.match(/^[A-Z]{4}$/)) {
-          alert("Code OACI invalide.");
-          return;
-        }
-        try {
-          loginMsg.style.display = "none";
-          const loggedIn = await ensureLoggedIn();
-          if (!loggedIn) {
-            loginMsg.style.display = "block";
-            return;
-          }
-          const chartsGrouped = await fetchChartsGrouped(icao);
-          if (!chartsGrouped || !chartsGrouped.data) {
-            alert("Aucune carte trouvée.");
-            return;
-          }
-          createTabs(chartsGrouped);
-          tabsDiv.style.display = "flex";
-          viewerDiv.style.flexGrow = "1";
-        } catch (e) {
-          alert("Erreur API : " + e.message);
-        }
+        searchCharts();
       }
     });
 
-    // Au chargement, masque message login si token existant
-    if (localStorage.getItem("access_token")) {
-      loginMsg.style.display = "none";
-    }
+    // Initialisation au chargement
+    (async () => {
+      const loggedIn = await ensureLoggedIn();
+      if (!loggedIn) return;
+      icaoInput.focus();
+    })();
   </script>
 </body>
 </html>
