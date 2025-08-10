@@ -25,7 +25,6 @@
       font-size: 1.1em;
       border-radius: 4px;
       border: none;
-      text-transform: uppercase;
     }
     #tabs-container {
       display: flex;
@@ -38,7 +37,6 @@
       border-right: 1px solid #ccc;
       display: flex;
       flex-direction: column;
-      display: none; /* caché initialement */
     }
     #tabs .tab-buttons {
       display: flex;
@@ -52,7 +50,6 @@
       cursor: pointer;
       font-weight: bold;
       border-right: 1px solid #ccc;
-      transition: background-color 0.3s;
     }
     #tabs .tab-buttons button.active {
       background: white;
@@ -101,7 +98,6 @@
       padding: 20px;
       font-weight: bold;
       text-align: center;
-      display: none;
     }
   </style>
 </head>
@@ -111,35 +107,28 @@
   </div>
 
   <div id="tabs-container">
-    <div id="tabs">
+    <div id="tabs" style="display:none;">
       <div class="tab-buttons" id="tab-buttons"></div>
       <div class="tab-content" id="tab-content"></div>
     </div>
     <div id="viewer">Aucune carte sélectionnée.</div>
   </div>
 
-  <div id="login-msg">
+  <div id="login-msg" style="display:none;">
     ⚠️ Vous devez être connecté à ChartFox. Actualisez la page et connectez-vous.
   </div>
 
   <script>
-    // Proxy CORS simple & gratuit
-    const PROXY = "https://cors.bridged.cc/";
-
-    // Configuration OAuth
     const client_id = "9f946a22-0dc6-4027-a66e-9678e653c478";
     const redirect_uri = "https://ninors.github.io/chartfox/";
     const scope = "charts:view charts:index charts:files charts:view_source_url";
 
-    // Génération Code Verifier PKCE
     function generateCodeVerifier() {
       const array = new Uint8Array(64);
       window.crypto.getRandomValues(array);
       return btoa(String.fromCharCode(...array))
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
-
-    // Génération Code Challenge PKCE (SHA256 + Base64URL)
     async function generateCodeChallenge(codeVerifier) {
       const encoder = new TextEncoder();
       const data = encoder.encode(codeVerifier);
@@ -147,13 +136,10 @@
       return btoa(String.fromCharCode(...new Uint8Array(digest)))
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
-
-    // Récupérer param URL
     function getURLParam(name) {
       return new URLSearchParams(window.location.search).get(name);
     }
 
-    // Gestion redirection OAuth
     async function handleOAuthRedirect() {
       const code = getURLParam('code');
       if (!code) return false;
@@ -161,78 +147,64 @@
       const codeVerifier = localStorage.getItem('code_verifier');
       if (!codeVerifier) return false;
 
-      try {
-        const response = await fetch(PROXY + 'https://api.chartfox.org/oauth/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            grant_type: 'authorization_code',
-            code,
-            redirect_uri,
-            client_id,
-            code_verifier: codeVerifier
-          })
-        });
-        const data = await response.json();
-        if (data.access_token) {
-          localStorage.setItem('access_token', data.access_token);
-          history.replaceState({}, null, redirect_uri); // Nettoie l'URL
-          return true;
-        }
-      } catch (err) {
-        console.error("Erreur lors de la récupération du token OAuth:", err);
+      const response = await fetch('https://api.chartfox.org/oauth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri,
+          client_id,
+          code_verifier: codeVerifier
+        })
+      });
+      const data = await response.json();
+      if (data.access_token) {
+        localStorage.setItem('access_token', data.access_token);
+        history.replaceState({}, null, redirect_uri);
+        return true;
       }
       return false;
     }
 
-    // Assure connexion ou lance OAuth
     async function ensureLoggedIn() {
       let token = localStorage.getItem('access_token');
       if (token) return true;
       const success = await handleOAuthRedirect();
       if (success) return true;
 
-      // Lancer la connexion OAuth PKCE
       const codeVerifier = generateCodeVerifier();
       const codeChallenge = await generateCodeChallenge(codeVerifier);
       localStorage.setItem('code_verifier', codeVerifier);
-
       const authUrl = `https://api.chartfox.org/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=${encodeURIComponent(scope)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
       window.location = authUrl;
       return false;
     }
 
-    // Récupère les charts groupés par type avec proxy
     async function fetchChartsGrouped(icao) {
       const token = localStorage.getItem("access_token");
-      if (!token) throw new Error("Pas de token d'accès");
-
-      const resp = await fetch(PROXY + `https://api.chartfox.org/v2/airports/${icao}/charts/grouped`, {
+      const resp = await fetch(`https://api.chartfox.org/v2/airports/${icao}/charts/grouped`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!resp.ok) throw new Error(`Erreur API: ${resp.status}`);
       return await resp.json();
     }
 
-    // Détails d'une carte avec proxy
     async function getChartDetails(chartId) {
       const token = localStorage.getItem("access_token");
-      const resp = await fetch(PROXY + `https://api.chartfox.org/v2/charts/${chartId}`, {
+      const resp = await fetch(`https://api.chartfox.org/v2/charts/${chartId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!resp.ok) throw new Error(`Erreur API détails carte: ${resp.status}`);
       return await resp.json();
     }
 
-    // DOM references
     const tabButtonsDiv = document.getElementById("tab-buttons");
     const tabContentDiv = document.getElementById("tab-content");
     const tabsDiv = document.getElementById("tabs");
     const viewerDiv = document.getElementById("viewer");
     const loginMsg = document.getElementById("login-msg");
-    const icaoInput = document.getElementById("icao");
 
-    // Création des tabs avec les charts groupés
     function createTabs(chartsGrouped) {
       tabButtonsDiv.innerHTML = "";
       tabContentDiv.innerHTML = "";
@@ -244,17 +216,15 @@
         return;
       }
 
-      // Création boutons tabs
       types.forEach(([typeId, charts], i) => {
         const btn = document.createElement("button");
-        btn.textContent = charts[0].type_key || typeId;
+        btn.textContent = charts[0].type_key;
         btn.className = i === 0 ? "active" : "";
         btn.dataset.tab = typeId;
         btn.onclick = () => showTab(typeId);
         tabButtonsDiv.appendChild(btn);
       });
 
-      // Création contenu tabs
       types.forEach(([typeId, charts], i) => {
         const ul = document.createElement("ul");
         ul.style.display = i === 0 ? "block" : "none";
@@ -272,76 +242,75 @@
           li.appendChild(a);
           ul.appendChild(li);
         });
+
         tabContentDiv.appendChild(ul);
       });
     }
 
-    // Affiche le contenu d'un tab et active bouton
     function showTab(typeId) {
-      Array.from(tabButtonsDiv.children).forEach(btn => {
+      [...tabButtonsDiv.children].forEach(btn => {
         btn.classList.toggle("active", btn.dataset.tab === typeId);
       });
-      Array.from(tabContentDiv.children).forEach(ul => {
+      [...tabContentDiv.children].forEach(ul => {
         ul.style.display = ul.id === "tab-" + typeId ? "block" : "none";
       });
     }
 
-    // Affiche une carte dans le viewer (iframe)
     async function showChartInViewer(chartId) {
-      viewerDiv.innerHTML = "Chargement...";
       try {
-        const chartDetails = await getChartDetails(chartId);
-        let src = chartDetails.data?.source_url || chartDetails.data?.file_url;
-        if (!src) throw new Error("Aucune URL disponible pour cette carte");
+        viewerDiv.textContent = "Chargement...";
+        const chart = await getChartDetails(chartId);
 
-        // Remplacer si PDF Google Docs Viewer préféré :
-        if (src.endsWith(".pdf")) {
-          src = "https://docs.google.com/gview?embedded=true&url=" + encodeURIComponent(src);
-        }
-
-        viewerDiv.innerHTML = `<iframe src="${src}" title="Carte ${chartId}"></iframe>`;
-      } catch (err) {
-        viewerDiv.textContent = "Erreur chargement carte : " + err.message;
-      }
-    }
-
-    // Recherche & affichage cartes par ICAO
-    async function searchCharts() {
-      const icao = icaoInput.value.trim().toUpperCase();
-      if (!icao.match(/^[A-Z]{4}$/)) {
-        alert("Entrez un code OACI valide (4 lettres).");
-        return;
-      }
-      tabsDiv.style.display = "none";
-      viewerDiv.textContent = "Recherche en cours...";
-      loginMsg.style.display = "none";
-
-      try {
-        const chartsGrouped = await fetchChartsGrouped(icao);
-        createTabs(chartsGrouped);
-        tabsDiv.style.display = "flex";
-      } catch (err) {
-        if (err.message.includes("401") || err.message.includes("token")) {
-          loginMsg.style.display = "block";
+        if (chart.allows_iframe && chart.view_url) {
+          // Affiche en iframe uniquement si autorisé
+          viewerDiv.innerHTML = `<iframe src="${chart.view_url}" allowfullscreen></iframe>`;
+        } else if (chart.source_url) {
+          // Sinon ouvre dans un nouvel onglet
+          viewerDiv.innerHTML = `
+            <p>Cette carte ne peut pas être affichée directement ici.</p>
+            <p><a href="${chart.source_url}" target="_blank" rel="noopener noreferrer">Ouvrir la carte dans un nouvel onglet</a></p>
+          `;
+          window.open(chart.source_url, "_blank");
         } else {
-          viewerDiv.textContent = "Erreur lors de la recherche: " + err.message;
+          viewerDiv.textContent = "Impossible d'afficher la carte.";
         }
+      } catch (e) {
+        viewerDiv.textContent = `Erreur: ${e.message}`;
       }
     }
 
-    // Gestion entrée clavier sur input ICAO
-    icaoInput.addEventListener("keydown", (e) => {
+    document.getElementById("icao").addEventListener("keydown", async e => {
       if (e.key === "Enter") {
-        searchCharts();
+        const icao = e.target.value.trim().toUpperCase();
+        if (!icao.match(/^[A-Z]{4}$/)) {
+          alert("Code OACI invalide.");
+          return;
+        }
+        try {
+          const loggedIn = await ensureLoggedIn();
+          if (!loggedIn) {
+            loginMsg.style.display = "block";
+            return;
+          }
+          loginMsg.style.display = "none";
+          const chartsGrouped = await fetchChartsGrouped(icao);
+          if (!chartsGrouped || !chartsGrouped.data) {
+            alert("Aucune carte trouvée.");
+            return;
+          }
+          createTabs(chartsGrouped);
+          tabsDiv.style.display = "flex";
+          viewerDiv.style.flexGrow = "1";
+        } catch (e) {
+          alert("Erreur API : " + e.message);
+        }
       }
     });
 
-    // Initialisation au chargement
-    (async () => {
-      const loggedIn = await ensureLoggedIn();
-      if (!loggedIn) return;
-      icaoInput.focus();
-    })();
+    // Si déjà connecté (token en cache), cache le message login
+    if (localStorage.getItem("access_token")) {
+      loginMsg.style.display = "none";
+    }
   </script>
 </body>
 </html>
