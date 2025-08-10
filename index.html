@@ -38,7 +38,7 @@
       border-right: 1px solid #ccc;
       display: flex;
       flex-direction: column;
-      display: none; /* caché initialement */
+      display: none;
     }
     #tabs .tab-buttons {
       display: flex;
@@ -123,12 +123,12 @@
   </div>
 
   <script>
-    // Configuration OAuth
     const client_id = "9f946a22-0dc6-4027-a66e-9678e653c478";
     const redirect_uri = "https://ninors.github.io/chartfox/";
     const scope = "charts:view charts:index charts:files charts:view_source_url";
 
-    // Génération Code Verifier PKCE
+    const proxyBase = "https://TON_NOM_DE_WORKER.moncloudflare.workers.dev/?url="; // à remplacer
+
     function generateCodeVerifier() {
       const array = new Uint8Array(64);
       window.crypto.getRandomValues(array);
@@ -136,7 +136,6 @@
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
-    // Génération Code Challenge PKCE (SHA256 + Base64URL)
     async function generateCodeChallenge(codeVerifier) {
       const encoder = new TextEncoder();
       const data = encoder.encode(codeVerifier);
@@ -145,12 +144,10 @@
         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
-    // Récupérer param URL
     function getURLParam(name) {
       return new URLSearchParams(window.location.search).get(name);
     }
 
-    // Gestion redirection OAuth
     async function handleOAuthRedirect() {
       const code = getURLParam('code');
       if (!code) return false;
@@ -173,55 +170,50 @@
         const data = await response.json();
         if (data.access_token) {
           localStorage.setItem('access_token', data.access_token);
-          history.replaceState({}, null, redirect_uri); // Nettoie l'URL
+          history.replaceState({}, null, redirect_uri);
           return true;
         }
       } catch (err) {
-        console.error("Erreur lors de la récupération du token OAuth:", err);
+        console.error("Erreur OAuth:", err);
       }
       return false;
     }
 
-    // Assure connexion ou lance OAuth
     async function ensureLoggedIn() {
       let token = localStorage.getItem('access_token');
       if (token) return true;
       const success = await handleOAuthRedirect();
       if (success) return true;
 
-      // Lancer la connexion OAuth PKCE
       const codeVerifier = generateCodeVerifier();
       const codeChallenge = await generateCodeChallenge(codeVerifier);
       localStorage.setItem('code_verifier', codeVerifier);
 
-      const authUrl = https://api.chartfox.org/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=${encodeURIComponent(scope)}&code_challenge=${codeChallenge}&code_challenge_method=S256;
+      const authUrl = `https://api.chartfox.org/oauth/authorize?response_type=code&client_id=${client_id}&redirect_uri=${encodeURIComponent(redirect_uri)}&scope=${encodeURIComponent(scope)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
       window.location = authUrl;
       return false;
     }
 
-    // Récupère les charts groupés par type
     async function fetchChartsGrouped(icao) {
       const token = localStorage.getItem("access_token");
-      if (!token) throw new Error("Pas de token d'accès");
+      if (!token) throw new Error("Pas de token");
 
-      const resp = await fetch(https://api.chartfox.org/v2/airports/${icao}/charts/grouped, {
-        headers: { Authorization: Bearer ${token} }
+      const resp = await fetch(`https://api.chartfox.org/v2/airports/${icao}/charts/grouped`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
-      if (!resp.ok) throw new Error(Erreur API: ${resp.status});
+      if (!resp.ok) throw new Error(`Erreur API: ${resp.status}`);
       return await resp.json();
     }
 
-    // Détails d'une carte
     async function getChartDetails(chartId) {
       const token = localStorage.getItem("access_token");
-      const resp = await fetch(https://api.chartfox.org/v2/charts/${chartId}, {
-        headers: { Authorization: Bearer ${token} }
+      const resp = await fetch(`https://api.chartfox.org/v2/charts/${chartId}`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
-      if (!resp.ok) throw new Error(Erreur API détails carte: ${resp.status});
+      if (!resp.ok) throw new Error(`Erreur API: ${resp.status}`);
       return await resp.json();
     }
 
-    // DOM references
     const tabButtonsDiv = document.getElementById("tab-buttons");
     const tabContentDiv = document.getElementById("tab-content");
     const tabsDiv = document.getElementById("tabs");
@@ -229,7 +221,6 @@
     const loginMsg = document.getElementById("login-msg");
     const icaoInput = document.getElementById("icao");
 
-    // Création des tabs avec les charts groupés
     function createTabs(chartsGrouped) {
       tabButtonsDiv.innerHTML = "";
       tabContentDiv.innerHTML = "";
@@ -241,7 +232,6 @@
         return;
       }
 
-      // Création boutons tabs
       types.forEach(([typeId, charts], i) => {
         const btn = document.createElement("button");
         btn.textContent = charts[0].type_key || typeId;
@@ -251,7 +241,6 @@
         tabButtonsDiv.appendChild(btn);
       });
 
-      // Création contenu tabs
       types.forEach(([typeId, charts], i) => {
         const ul = document.createElement("ul");
         ul.style.display = i === 0 ? "block" : "none";
@@ -274,7 +263,6 @@
       });
     }
 
-    // Affiche un tab spécifique
     function showTab(typeId) {
       [...tabButtonsDiv.children].forEach(btn => {
         btn.classList.toggle("active", btn.dataset.tab === typeId);
@@ -284,29 +272,23 @@
       });
     }
 
-    // Affiche la carte dans le viewer
     async function showChartInViewer(chartId) {
       try {
         viewerDiv.textContent = "Chargement...";
         const chart = await getChartDetails(chartId);
 
-        if (chart.allows_iframe && chart.view_url) {
-          viewerDiv.innerHTML = <iframe src="${chart.view_url}" allowfullscreen></iframe>;
+        if (chart.view_url) {
+          viewerDiv.innerHTML = `<iframe src="${proxyBase}${encodeURIComponent(chart.view_url)}" allowfullscreen></iframe>`;
         } else if (chart.source_url) {
-          viewerDiv.innerHTML = 
-            <p>Cette carte ne peut pas être affichée directement ici.</p>
-            <p><a href="${chart.source_url}" target="_blank" rel="noopener noreferrer">Ouvrir la carte dans un nouvel onglet</a></p>
-          ;
-          window.open(chart.source_url, "_blank");
+          viewerDiv.innerHTML = `<p><a href="${chart.source_url}" target="_blank">Ouvrir la carte</a></p>`;
         } else {
           viewerDiv.textContent = "Impossible d'afficher la carte.";
         }
       } catch (e) {
-        viewerDiv.textContent = Erreur: ${e.message};
+        viewerDiv.textContent = `Erreur: ${e.message}`;
       }
     }
 
-    // Gestion saisie OACI + recherche charts
     icaoInput.addEventListener("keydown", async e => {
       if (e.key === "Enter") {
         const icao = e.target.value.trim().toUpperCase();
@@ -322,23 +304,17 @@
             return;
           }
           const chartsGrouped = await fetchChartsGrouped(icao);
-          if (!chartsGrouped || !chartsGrouped.data) {
-            alert("Aucune carte trouvée.");
-            return;
-          }
           createTabs(chartsGrouped);
           tabsDiv.style.display = "flex";
-          viewerDiv.style.flexGrow = "1";
         } catch (e) {
           alert("Erreur API : " + e.message);
         }
       }
     });
 
-    // Au chargement, masque message login si token existant
     if (localStorage.getItem("access_token")) {
       loginMsg.style.display = "none";
     }
   </script>
 </body>
-</html> 
+</html>
