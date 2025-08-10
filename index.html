@@ -2,104 +2,151 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>ChartFox - Cache Local</title>
+<title>ChartFox Viewer avec Cache</title>
 <style>
-    body { background:#111; color:#fff; font-family:sans-serif; }
-    #chartList { display:flex; flex-wrap:wrap; gap:10px; }
-    .chart-btn { background:#222; padding:10px; border:none; color:white; cursor:pointer; }
-    .chart-btn:hover { background:#444; }
-    #chartViewer { margin-top:20px; width:100%; height:80vh; background:#000; }
-    button { margin:5px; padding:5px 10px; }
+body {
+    background-color: #111;
+    color: #eee;
+    font-family: Arial, sans-serif;
+    padding: 20px;
+}
+#chartList button {
+    background: #222;
+    color: #fff;
+    border: 1px solid #555;
+    padding: 6px 12px;
+    margin: 3px;
+    cursor: pointer;
+}
+#chartViewer {
+    margin-top: 20px;
+    height: 80vh;
+}
+#chartViewer embed {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
 </style>
 </head>
 <body>
 
-<h2>📑 ChartFox Viewer avec Cache Local</h2>
-<div>
-    <input id="icaoInput" placeholder="Code OACI (ex: LFPG)">
-    <button onclick="searchCharts()">Rechercher</button>
-    <button onclick="clearCache()">🗑 Vider le cache</button>
-</div>
+<h1>📑 ChartFox Viewer (avec Cache)</h1>
+
+<input type="text" id="icaoInput" placeholder="Entrez code OACI">
+<button onclick="fetchCharts()">Rechercher</button>
+<button onclick="clearCache()">🗑 Vider le cache</button>
 
 <div id="chartList"></div>
 <div id="chartViewer"></div>
 
 <script>
-const CLIENT_ID = "TON_CLIENT_ID";
-const REDIRECT_URI = window.location.origin + window.location.pathname;
-const AUTH_URL = "https://chartfox.org/oauth/authorize";
-const TOKEN_URL = "https://chartfox.org/oauth/token";
-const API_BASE = "https://api.chartfox.org/v2";
+const clientId = "TON_CLIENT_ID";
+const redirectUri = window.location.origin + window.location.pathname; // même page
+const authEndpoint = "https://chartfox.org/oauth/authorize";
+const tokenEndpoint = "https://api.chartfox.org/oauth/token";
 
 async function startOAuth() {
     const codeVerifier = [...crypto.getRandomValues(new Uint8Array(32))]
-        .map(b => b.toString(16).padStart(2, '0')).join('');
+        .map(b => b.toString(16).padStart(2, "0")).join("");
     const encoder = new TextEncoder();
-    const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(codeVerifier));
-    const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
-        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const data = encoder.encode(codeVerifier);
+    const digest = await crypto.subtle.digest("SHA-256", data);
+    const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+
     localStorage.setItem("code_verifier", codeVerifier);
-    window.location.href = `${AUTH_URL}?response_type=code&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+
+    window.location = `${authEndpoint}?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${codeChallenge}&code_challenge_method=S256&scope=read`;
 }
 
 async function handleOAuthCallback() {
     const params = new URLSearchParams(window.location.search);
     if (params.has("code")) {
         const code = params.get("code");
-        const codeVerifier = localStorage.getItem("code_verifier");
-        const body = new URLSearchParams({
-            grant_type: "authorization_code",
-            code,
-            redirect_uri: REDIRECT_URI,
-            client_id: CLIENT_ID,
-            code_verifier: codeVerifier
+        const verifier = localStorage.getItem("code_verifier");
+
+        const resp = await fetch(tokenEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                grant_type: "authorization_code",
+                code: code,
+                redirect_uri: redirectUri,
+                client_id: clientId,
+                code_verifier: verifier
+            })
         });
-        const resp = await fetch(TOKEN_URL, { method:"POST", body });
+
         const data = await resp.json();
-        localStorage.setItem("access_token", data.access_token);
-        history.replaceState({}, document.title, REDIRECT_URI);
+        if (data.access_token) {
+            localStorage.setItem("access_token", data.access_token);
+            history.replaceState({}, document.title, redirectUri); // nettoyer l'URL
+        } else {
+            alert("Erreur OAuth");
+        }
     }
 }
 
-async function searchCharts() {
+async function fetchCharts() {
     const token = localStorage.getItem("access_token");
-    if (!token) return startOAuth();
+    if (!token) {
+        startOAuth();
+        return;
+    }
+
     const icao = document.getElementById("icaoInput").value.trim().toUpperCase();
-    const resp = await fetch(`${API_BASE}/airports/${icao}/charts`, {
+    if (!icao) return;
+
+    const resp = await fetch(`https://api.chartfox.org/v2/airports/${icao}/charts`, {
         headers: { Authorization: `Bearer ${token}` }
     });
+
+    if (!resp.ok) {
+        alert("Erreur API charts");
+        return;
+    }
+
     const charts = await resp.json();
-    document.getElementById("chartList").innerHTML = charts.map(c => 
-        `<button class="chart-btn" onclick='showChart(${JSON.stringify(c)})'>${c.name}</button>`
-    ).join("");
+    const listDiv = document.getElementById("chartList");
+    listDiv.innerHTML = "";
+
+    charts.forEach(chart => {
+        const btn = document.createElement("button");
+        btn.textContent = chart.name;
+        btn.onclick = () => showChartInViewer(chart);
+        listDiv.appendChild(btn);
+    });
 }
 
-async function showChart(chart) {
-    const viewer = document.getElementById("chartViewer");
+async function showChartInViewer(chart) {
+    const viewerDiv = document.getElementById("chartViewer");
     const cacheKey = `chart-${chart.id}`;
+
     let cachedData = localStorage.getItem(cacheKey);
 
     if (cachedData) {
-        console.log("Chargé depuis cache:", chart.id);
-        viewer.innerHTML = embedHTML(cachedData, chart.fileExtension);
+        console.log("Depuis cache:", chart.id);
+        viewerDiv.innerHTML = `<embed src="${cachedData}" type="application/pdf">`;
         return;
     }
 
     const token = localStorage.getItem("access_token");
-    const resp = await fetch(`${API_BASE}/charts/${chart.id}/file`, {
+    const resp = await fetch(`https://api.chartfox.org/v2/charts/${chart.id}/file`, {
         headers: { Authorization: `Bearer ${token}` }
     });
+
+    if (!resp.ok) {
+        console.error("Erreur téléchargement", await resp.text());
+        return;
+    }
+
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
-    localStorage.setItem(cacheKey, url);
-    viewer.innerHTML = embedHTML(url, chart.fileExtension);
-}
 
-function embedHTML(url, ext) {
-    if (ext && ext.toLowerCase() === "pdf") {
-        return `<embed src="${url}" type="application/pdf" width="100%" height="100%">`;
-    }
-    return `<img src="${url}" style="max-width:100%; height:auto;">`;
+    localStorage.setItem(cacheKey, url);
+
+    viewerDiv.innerHTML = `<embed src="${url}" type="application/pdf">`;
 }
 
 function clearCache() {
