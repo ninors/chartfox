@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lecture Carte NFC</title>
+
+<style>
+body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    background: #111;
+    color: white;
+    margin-top: 80px;
+}
+
+#statusIcon {
+    font-size: 80px;
+    color: red;
+    transition: 0.3s ease;
+}
+
+.green {
+    color: #00ff6a;
+}
+
+#value {
+    margin-top: 30px;
+    font-size: 22px;
+    background: #222;
+    padding: 20px;
+    border-radius: 10px;
+    display: inline-block;
+}
+button {
+    margin-top: 40px;
+    padding: 15px 25px;
+    font-size: 18px;
+    border-radius: 8px;
+    border: none;
+    background: #0066ff;
+    color: white;
+}
+</style>
+</head>
+
+<body>
+
+<h1>Scanner Carte NFC</h1>
+
+<div id="statusIcon">●</div>
+<div id="value">En attente d'une carte...</div>
+
+<br>
+<button onclick="startNFC()">Activer NFC</button>
+
+<script>
+async function startNFC() {
+
+    if (!("NDEFReader" in window)) {
+        alert("Web NFC non supporté sur cet appareil.");
+        return;
+    }
+
+    try {
+        const ndef = new NDEFReader();
+        await ndef.scan();
+
+        document.getElementById("value").innerText = "Approchez une carte NFC...";
+
+        ndef.onreading = event => {
+
+            document.getElementById("statusIcon").classList.add("green");
+
+            let decoder = new TextDecoder();
+            let message = "";
+
+            for (const record of event.message.records) {
+
+                if (record.recordType === "text") {
+                    message += decoder.decode(record.data);
+                } else {
+                    message += decoder.decode(record.data);
+                }
+            }
+
+            document.getElementById("value").innerText = "Valeur détectée : " + message;
+        };
+
+        ndef.onreadingerror = () => {
+            document.getElementById("value").innerText = "Erreur lecture carte.";
+        };
+
+    } catch (error) {
+        console.error(error);
+        alert("Permission refusée ou erreur NFC.");
+    }
+}
+</script>
+
+</body>
+</html>
