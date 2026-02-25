@@ -1,102 +1,126 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lecture Carte NFC</title>
-
-<style>
-body {
-    font-family: Arial, sans-serif;
-    text-align: center;
-    background: #111;
-    color: white;
-    margin-top: 80px;
-}
-
-#statusIcon {
-    font-size: 80px;
-    color: red;
-    transition: 0.3s ease;
-}
-
-.green {
-    color: #00ff6a;
-}
-
-#value {
-    margin-top: 30px;
-    font-size: 22px;
-    background: #222;
-    padding: 20px;
-    border-radius: 10px;
-    display: inline-block;
-}
-button {
-    margin-top: 40px;
-    padding: 15px 25px;
-    font-size: 18px;
-    border-radius: 8px;
-    border: none;
-    background: #0066ff;
-    color: white;
-}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner NFC - Hip Flight</title>
+    <style>
+        /* Charte graphique : Blanc, Noir, Bleu, Rouge */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #ffffff; /* Blanc */
+            color: #000000; /* Noir */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        header {
+            background-color: #0000ff; /* Bleu */
+            color: #ffffff;
+            width: 100%;
+            padding: 20px 0;
+            position: absolute;
+            top: 0;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+        .btn {
+            background-color: #ff0000; /* Rouge */
+            color: #ffffff;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 80px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .btn:active {
+            transform: scale(0.98);
+        }
+        #result {
+            margin-top: 40px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            padding: 0 20px;
+        }
+        #scan-status {
+            color: #008000; /* Vert demandé */
+            font-size: 3rem;
+            font-weight: bold;
+            display: none;
+            margin-top: 20px;
+            text-transform: uppercase;
+        }
+        .error {
+            color: #ff0000;
+            font-size: 1.2rem;
+        }
+    </style>
 </head>
-
 <body>
 
-<h1>Scanner Carte NFC</h1>
+    <header>
+        <h1>Hip Flight - Accès NFC</h1>
+    </header>
 
-<div id="statusIcon">●</div>
-<div id="value">En attente d'une carte...</div>
+    <button class="btn" id="start-btn">Activer le lecteur NFC</button>
+    
+    <div id="result">Appuyez sur le bouton pour commencer.</div>
+    <div id="scan-status">SCAN</div>
 
-<br>
-<button onclick="startNFC()">Activer NFC</button>
+    <script>
+        const startBtn = document.getElementById('start-btn');
+        const resultDiv = document.getElementById('result');
+        const scanStatus = document.getElementById('scan-status');
 
-<script>
-async function startNFC() {
-
-    if (!("NDEFReader" in window)) {
-        alert("Web NFC non supporté sur cet appareil.");
-        return;
-    }
-
-    try {
-        const ndef = new NDEFReader();
-        await ndef.scan();
-
-        document.getElementById("value").innerText = "Approchez une carte NFC...";
-
-        ndef.onreading = event => {
-
-            document.getElementById("statusIcon").classList.add("green");
-
-            let decoder = new TextDecoder();
-            let message = "";
-
-            for (const record of event.message.records) {
-
-                if (record.recordType === "text") {
-                    message += decoder.decode(record.data);
-                } else {
-                    message += decoder.decode(record.data);
-                }
+        startBtn.addEventListener('click', async () => {
+            // Vérification de la compatibilité du navigateur
+            if (!("NDEFReader" in window)) {
+                resultDiv.innerHTML = "<span class='error'>L'API Web NFC n'est pas supportée sur ce navigateur ou appareil. (Nécessite Chrome sur Android)</span>";
+                return;
             }
 
-            document.getElementById("value").innerText = "Valeur détectée : " + message;
-        };
+            try {
+                const ndef = new NDEFReader();
+                await ndef.scan();
+                
+                resultDiv.textContent = "Lecteur actif. Approchez une carte...";
+                startBtn.style.display = 'none';
 
-        ndef.onreadingerror = () => {
-            document.getElementById("value").innerText = "Erreur lecture carte.";
-        };
+                // Écoute de l'événement de lecture de la carte
+                ndef.addEventListener("reading", ({ serialNumber }) => {
+                    // Affichage de l'ID (numéro de série)
+                    resultDiv.textContent = `ID de la carte : ${serialNumber}`;
+                    
+                    // Affichage du texte SCAN en vert
+                    scanStatus.style.display = 'block';
+                    
+                    // Optionnel : fait disparaître le "SCAN" après 3 secondes pour être prêt pour la suivante
+                    setTimeout(() => {
+                        scanStatus.style.display = 'none';
+                    }, 3000);
+                });
 
-    } catch (error) {
-        console.error(error);
-        alert("Permission refusée ou erreur NFC.");
-    }
-}
-</script>
+                // Gestion des erreurs de lecture
+                ndef.addEventListener("readingerror", () => {
+                    resultDiv.innerHTML = "<span class='error'>Erreur de lecture. Retentez l'opération.</span>";
+                    scanStatus.style.display = 'none';
+                });
+
+            } catch (error) {
+                resultDiv.innerHTML = `<span class='error'>Erreur d'autorisation : ${error.message}</span>`;
+            }
+        });
+    </script>
 
 </body>
 </html>
